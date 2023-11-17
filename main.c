@@ -3,12 +3,27 @@
 
 #include <string.h>
 
+#define PRINT_HELP_MESSAGE \
+        printf("    Convert C++ syntax to C:\n"); \
+        printf("        usage:       cpptoc <file_to_read> <options>\n\n"); \
+        printf("    Options:\n"); \
+        printf("        -help:       Display this message\n"); \
+        printf("        -write-file: Give a file write output to, e.g. \"-write-file out.c\"\n"); \
+        printf("        -structs:    Convert C++ style structs to C style, e.g:\n"); \
+        printf("                         C++: struct Thing {...};\n"); \
+        printf("                         C:   typedef struct Thing {...} Thing;\n");
+
 int main(int argc, const char *argv[]) {
+
+    if (memcmp(argv[1], "-help", 5) == 0 || argc == 1) {
+        PRINT_HELP_MESSAGE;
+        return 0;
+    }
 
     FILE *file = fopen(argv[1], "rb");
 
     if (!file) {
-        printf("The first argument must be the file to read...\n");
+        printf("The first argument must be the file to read (try -help)\n");
         return 0;
     }
 
@@ -21,15 +36,23 @@ int main(int argc, const char *argv[]) {
     bool do_convert_structs = false;
     const char *out_file = NULL;
 
+    bool no_matches = true;
+
     int new_len;
     char *out;
     for(int i = 2; i < argc; ++i)
         if (memcmp(argv[i], "-structs", 8) == 0) {
             do_convert_structs = true;
+            no_matches = false;
         } else if (memcmp(argv[i], "-write-file", 11) == 0) {
             i++;
             out_file = argv[i];
+            no_matches = false;
         }
+
+    if (no_matches) {
+        PRINT_HELP_MESSAGE;
+    }
 
     if (do_convert_structs)
         out = convert_structs(len, data, &new_len);
