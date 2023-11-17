@@ -15,7 +15,11 @@
 
 int main(int argc, const char *argv[]) {
 
-    if (memcmp(argv[1], "-help", 5) == 0 || argc == 1) {
+    if (argc == 1) {
+        PRINT_HELP_MESSAGE;
+        return 0;
+    }
+    if (memcmp(argv[1], "-help", 5) == 0) {
         PRINT_HELP_MESSAGE;
         return 0;
     }
