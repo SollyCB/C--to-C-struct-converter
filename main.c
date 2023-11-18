@@ -2,6 +2,7 @@
 #include "cpp_struct_converter.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #define PRINT_HELP_MESSAGE \
         printf("    Convert C++ syntax to C:\n"); \
@@ -38,6 +39,7 @@ int main(int argc, const char *argv[]) {
     fread(data, 1, len, file);
 
     bool do_convert_structs = false;
+    bool do_convert_enums   = false;
     const char *out_file = NULL;
 
     bool no_matches = true;
@@ -47,6 +49,9 @@ int main(int argc, const char *argv[]) {
     for(int i = 2; i < argc; ++i)
         if (memcmp(argv[i], "-structs", 8) == 0) {
             do_convert_structs = true;
+            no_matches = false;
+        } else if (memcmp(argv[i], "-enums", 6) == 0) {
+            do_convert_enums = true;
             no_matches = false;
         } else if (memcmp(argv[i], "-write-file", 11) == 0) {
             i++;
@@ -58,8 +63,8 @@ int main(int argc, const char *argv[]) {
         PRINT_HELP_MESSAGE;
     }
 
-    if (do_convert_structs)
-        out = convert_structs(len, data, &new_len);
+    if (do_convert_structs || do_convert_enums)
+        out = convert_structs_and_enums(len, data, &new_len, do_convert_structs, do_convert_enums);
 
     if (out_file) {
         file = fopen(out_file, "wb");

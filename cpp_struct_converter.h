@@ -4,12 +4,17 @@
                                                     ** API **
     -----------------------------------------------------------------------------------------------------------
     1. Define SOL_CPP_STRUCT_CONVERTER to include the C source code (STB style)
-    2. Call to convert C++ style structs to C style:
+    2. Call to convert C++ style structs and enums to C style:
 
            char* convert_structs(int len, char *data, int *new_len);
 
     @Note Seems pretty robust, but I have only tested it on regular code and the few edge cases I can think of.
-    I am certain it will break to something, but it works fine on everything I have written.
+          I am certain it will break to something, but it works fine on everything I have written.
+    @Note If a struct or enum is wrapped in a scope, they will be unaffected; for instance, if they are
+          wrapped in a namespace.
+
+    I apologise for the lack of doc comments, its not normally my style to leave stuff undocumented, but
+    this thing is so trivial, I did not think that it really mattered.
 
 */
 
@@ -17,96 +22,165 @@
 #define SOL_CPP_STRUCT_CONVERTER_H_INCLUDE_GUARD_
 
 #include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
 #include <assert.h>
 #include <string.h>
-#include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
-char* convert_structs(int len, char *data, int *new_len);
+char* convert_struct_and_enums(int len, char *data, int *new_len, bool structs, bool enums);
 
 #ifdef SOL_CPP_STRUCT_CONVERTER_IMPLEMENTATION
 
 #define Max_s32 INT32_MAX
 
-#define ZERO 48
-#define NINE 57
-#define UPPER_A 65
-#define UPPER_Z 90
-#define LOWER_A 97
-#define LOWER_Z 122
-#define UNDERSCORE 95
-
 inline static int skip_whitespace(int len, char *data) {
     int i;
     for(i = 0; i < len; ++i) {
-        switch(data[i]) {
-        case ' ':
-        case '\n':
-            continue;
-        default:
+        if (data[i] != ' ' && data[i] != '\n')
             return i;
-        }
     }
     return Max_s32;
 }
-inline static int skip_to_whitespace(int len, char *data) {
+
+inline static int skip_name_chars(int len, char *data) {
     int i;
     for(i = 0; i < len; ++i) {
-        switch(data[i]) {
-        case ' ':
-        case '\n':
-            return i;
-        default:
-            break;
-        }
+        if (data[i] >= '0' && data[i] <= '9') {continue;}
+        if (data[i] >= 'A' && data[i] <= 'Z') {continue;}
+        if (data[i] >= 'a' && data[i] <= 'z') {continue;}
+        if (data[i] == '_') {continue;}
+        return i;
     }
     return Max_s32;
-    return i;
 }
-inline static bool is_valid_char(char c) { // valid characters before 'struct' keyword
-    switch(c) {
-    case ' ':
-    case '\n':
-    case ';':
-        return true;
-    default:
-        return false;
-    }
-}
-inline static bool is_struct(char *string) {
-    return memcmp(string, "struct ", 7) == 0 && is_valid_char(string[-1]);
-}
-inline static int word_len(char *string) {
+
+inline static int skip_to_name_chars(int len, char *data) {
     int i;
-    for(i = 0; true; ++i) {
-        if (string[i] >= UPPER_A && string[i] <= UPPER_Z) {}
-        else if (string[i] >= LOWER_A && string[i] <= LOWER_Z) {}
-        else if (string[i] >= ZERO && string[i] <= NINE) {}
-        else if (string[i] == UNDERSCORE) {}
-        else {return i;}
+    for(i = 0; i < len; ++i) {
+        if (data[i] >= 'A' && data[i] <= 'Z') {break;}
+        if (data[i] >= 'a' && data[i] <= 'z') {break;}
+        if (data[i] == '_') {break;}
+        continue;
     }
+    return Max_s32;
 }
-inline static int struct_len(char *string) {
+
+inline static int skip_to_equivalent_scope(int len, char *data) {
     int stack = 0;
     int i;
-    for(i = 0; true; ++i) {
-        if (string[i] == '{')
+    for(i = 0; i < len; ++i) {
+        if (data[i] == '{')
             stack++;
-        if (string[i] == '}') {
+        if (data[i] == '}')
             stack--;
-            if (stack == 0)
-                return i + 1;
-        }
+        if (stack == 0)
+            return i+1;
+    }
+    return Max_s32;
+}
+
+inline static int skip_comment(int len, char *data) {
+    int i = 1;
+    if (data[i] == '*') {
+        for(i = 2; i < len; ++i)
+            if (data[i] == '*' && data[i+1] == '/')
+                return i+2;
+    } else if (data[i] == '/') {
+        for(i = 2; i < len; ++i)
+            if (data[i] == '\n' && data[i-1] != '\\')
+                return i+1;
+    } else {
+        return i;
     }
 }
 
-// This is so small that it can be inlined in the same header which is nice
-#ifndef SOL_ARRAY_H_INCLUDE_GUARD_
-#define SOL_ARRAY_H_INCLUDE_GUARD_
+inline static int skip_macro(int len, char *data) {
+    int i;
+    for(i = 1; i < len; ++i)
+        if (data[i] == '\n' && data[i-1] != '\\')
+            return i;
+    return Max_s32;
+}
 
-// Backend
+inline static int find_char(int len, char *data, char c) {
+    int i;
+    for(i = 0; i < len; ++i)
+        if (data[i] == c)
+            return i;
+    return Max_s32;
+}
+
+inline static int get_name_len(int len, char *data) {
+    int i;
+    for(i = 0; i < len; ++i) {
+        if (data[i] >= '0' && data[i] <= '9') {continue;}
+        if (data[i] >= 'A' && data[i] <= 'Z') {continue;}
+        if (data[i] >= 'a' && data[i] <= 'z') {continue;}
+        if (data[i] == '_') {continue;}
+        return i;
+    }
+    return Max_s32;
+}
+
+typedef enum {
+    STRUCT,
+    ENUM,
+    NAN,
+} Keyword;
+
+inline static Keyword match_keyword(int len, char *data) {
+    if (memcmp(data, "struct ", 7) == 0)
+        return STRUCT;
+    if (memcmp(data, "enum ", 5) == 0)
+        return ENUM;
+    return NAN;
+}
+
+typedef struct {
+    int len;
+    const char *str;
+} String;
+
+typedef struct {
+    char *buf;
+    int len;
+    int cap;
+} String_Buffer;
+
+inline static String_Buffer new_string_buffer(int size) {
+    String_Buffer ret;
+    ret.len = 0;
+    ret.cap = size;
+    ret.buf = malloc(size);
+    return ret;
+}
+
+inline static void free_string_buffer(String_Buffer *buf) {
+    free(buf->buf);
+}
+
+inline static String string_buffer_get_string(String_Buffer *buf, String *str) {
+    String ret = {};
+    ret.len = str->len;
+
+    if (ret.len + 1 + buf->len >= buf->cap) {
+        buf->cap *= 2;
+        buf->buf = realloc(buf->buf, buf->cap);
+    }
+
+    ret.str = (const char*)(buf->buf + buf->len);
+
+    buf->len += ret.len + 1;
+    assert(buf->len <= buf->cap && "String Buffer Overflow");
+
+    memcpy((char*)ret.str, str->str, ret.len);
+
+    char *tmp = (char*)ret.str;
+    tmp[ret.len] = '\0';
+
+    return ret;
+}
+
 inline static void* fn_new_array(int cap, int width) {
     int *ret = malloc(cap * width + 16);
     ret[0] = width * cap;
@@ -115,6 +189,7 @@ inline static void* fn_new_array(int cap, int width) {
     ret += 4;
     return (void*)ret;
 }
+
 inline static void* fn_realloc_array(int *array) {
     if (array[0] > array[1] * array[2])
         return array + 4;
@@ -125,7 +200,6 @@ inline static void* fn_realloc_array(int *array) {
     return array;
 }
 
-// Frontend
 #define new_array(cap, type) fn_new_array(cap, sizeof(type))
 #define free_array(array) free((int*)array - 4)
 
@@ -144,118 +218,156 @@ inline static void* fn_realloc_array(int *array) {
     else \
         false
 
-#endif // array include guard
+typedef struct {
+    int pos;
+    int len;
+    String name;
+    bool forward_declaration;
+} Token;
 
-char* convert_structs(int len, char *data, int *new_len) {
-    int *marks = new_array(128, int); // beginning of each struct
-    int *name_lens = new_array(128, int); // lengths of the type names
-    int *struct_lens = new_array(128, int); // char count from curly brace to curly brace
-    int extra_size = 0; // size added by typedefs and doubled typenames
-    int pos = 0;
-    int tmp;
-    while(len - pos > 6) {
-        pos += skip_whitespace(len - pos, data + pos);
-        if (is_struct(data + pos)) {
-            array_add(marks, pos);
+inline static String parse_name(int len, char *data, int name_len) {
+    int pos = name_len;
 
-            // Skip to the type name
-            pos += skip_to_whitespace(len - pos, data + pos);
-            pos += skip_whitespace(len - pos, data + pos);
+    assert(data[pos] == ' ' || data[pos] == '\n' &&
+          "This should be a whitespace separating struct keyword and struct name");
 
-            // Find the length of the name
-            tmp = word_len(data + pos);
-            extra_size += tmp;
-            array_add(name_lens, tmp);
+    pos += skip_whitespace(len - pos, data + pos);
 
-            // Skip to the opening curly brace
-            pos += skip_to_whitespace(len - pos, data + pos);
-            pos += skip_whitespace(len - pos, data + pos);
-            assert(data[pos] == '{' && "Not a curly brace opening a struct");
+    String name = {
+        .len=get_name_len(len - pos, data + pos),
+        .str=data + pos,
+    };
+    return name;
+}
 
-            // Find char count between braces including braces
-            tmp = struct_len(data + pos);
-            array_add(struct_lens, tmp);
-            extra_size += tmp;
-            pos += tmp;
+inline static int distance_to_closing_brace(int len, char *data) {
+    int stack = 0;
+
+    int i = find_char(len, data, '{');
+    int j = find_char(len, data, ';');
+
+    for(i; i < len; ++i) {
+        if (data[i] == '{')
+            stack++;
+        if (data[i] == '}')
+            stack--;
+        if (stack == 0)
+            return i+1;
+    }
+    return Max_s32;
+}
+
+char* convert_structs_and_enums(int len, char *data, int *new_sz, bool structs, bool enums) {
+    String_Buffer name_buf = new_string_buffer(1024);
+
+    Token *token_array = new_array(128, Token);
+    Token  token;
+
+    int pos = skip_whitespace(len, data);
+    int extra_size = 0;
+    while(pos < len && pos >= 0) {
+        switch(data[pos]) {
+        case '/':
+            pos += skip_comment(len - pos, data + pos);
+            break;
+        case '#':
+            pos += skip_macro(len - pos, data + pos);
+            break;
+        default:
+            skip_to_name_chars(len - pos, data + pos);
+
+            switch(match_keyword(len - pos, data + pos)) {
+            case STRUCT:
+                if (structs) {
+                    token.pos  = pos;
+                    token.name = parse_name(len - pos, data + pos, 6);
+                    token.name = string_buffer_get_string(&name_buf, &token.name);
+                    extra_size += token.name.len + 10;
+
+                    if (find_char(len - pos, data + pos, ';') < find_char(len - pos, data + pos, '{')) {
+                        token.forward_declaration = true;
+                        token.len = 0;
+                        array_add(token_array, token);
+                        pos += find_char(len - pos, data + pos, ';');
+                        break;
+                    } else {
+                        token.forward_declaration = false;
+                    }
+
+                    token.len = distance_to_closing_brace(len - pos, data + pos);
+                    array_add(token_array, token);
+                    pos += find_char(len - pos, data + pos, '{');
+                    pos += skip_to_equivalent_scope(len - pos, data + pos);
+                } else {
+                    pos++; // Hackish; who cares, its a trivial cli
+                }
+                break;
+            case ENUM:
+                if (enums) {
+                    token.pos   = pos;
+                    token.name  = parse_name(len - pos, data + pos, 4);
+                    token.name  = string_buffer_get_string(&name_buf, &token.name);
+                    extra_size += token.name.len + 10;
+
+                    if (find_char(len - pos, data + pos, ';') < find_char(len - pos, data + pos, '{')) {
+                        token.forward_declaration = true;
+                        token.len = 0;
+
+                        array_add(token_array, token);
+
+                        pos += find_char(len - pos, data + pos, ';');
+                        break;
+                    } else {
+                        token.forward_declaration = false;
+                    }
+
+                    token.len = distance_to_closing_brace(len - pos, data + pos);
+                    array_add(token_array, token);
+                    pos += find_char(len - pos, data + pos, '{');
+                    pos += skip_to_equivalent_scope(len - pos, data + pos);
+                } else {
+                    pos++; // Hackish; who cares, its a trivial cli
+                }
+                break;
+            default:
+                pos++;
+                break;
+            }
         }
-        pos += skip_to_whitespace(len - pos, data + pos);
+        pos += skip_whitespace(len - pos, data + pos);
     }
-
-    // Allocate the return buffer, with enough size to include the typedefs and double type names
     char *ret = malloc(len + extra_size);
-
-    int count = array_len(marks);
-    int last_mark = 0;
-
-    int current_mark = 0;
-    int current_name_len = 0;
-    int current_struct_len = 0;
-
-    char name_buffer[128];
-
-    pos = 0;
+    int p1 = 0;
+    int p2 = 0;
+    int count = array_len(token_array);
     for(int i = 0; i < count; ++i) {
-        current_mark = marks[i];
-        current_name_len = name_lens[i];
-        current_struct_len = struct_lens[i];
-        memcpy(ret + pos, data + last_mark, current_mark - last_mark);
+        token = token_array[i];
+        memcpy(ret + p1, data + p2, token.pos - p2);
+        p1 += token.pos - p2;
+        p2 += token.pos - p2;
 
-        // Cursor on 's' of struct
-        tmp = last_mark;
-        last_mark += current_mark - tmp;
-        pos += current_mark - tmp;
+        memcpy(ret + p1, "typedef ", 8);
+        p1 += 8;
 
-        // Step beyond 'struct'
-        last_mark += 6;
-        last_mark += skip_whitespace(len - last_mark, data + last_mark);
+        memcpy(ret + p1, data + p2, token.len);
+        p1 += token.len;
+        p2 += token.len;
 
-        // Copy the type name into intermediate buffer
-        memcpy(name_buffer, data + last_mark, name_lens[i]);
-        last_mark += current_name_len + 1;
-        assert(data[last_mark] == '{' && "Should be pointing at struct opening");
+        if (token.forward_declaration)
+            continue;
 
-        // Copy in "typedef " to return buffer
-        memcpy(ret + pos, "typedef ", 8);
-        pos += 8;
-
-        // Copy in "struct " to return buffer
-        memcpy(ret + pos, "struct ", 7);
-        pos += 7;
-
-        // Copy in the type name after "typedef struct "
-        memcpy(ret + pos, name_buffer, current_name_len);
-        pos += current_name_len;
-
-        // Add a space after the type name
-        ret[pos] = ' ';
-        pos++;
-
-        // Copy in the struct data (everything inside curly braces, including the braces: "{..}")
-        memcpy(ret + pos, data + last_mark, current_struct_len);
-        last_mark += current_struct_len;
-        pos += current_struct_len;
-        pos++;
-        assert(data[last_mark-1] == '}' && "Should be pointing at struct end");
-
-        // Add a space after the closing curly brace
-        ret[pos] = ' ';
-        pos++;
-
-        // Copy in the type name again after the closing curly brace
-        memcpy(ret + pos, name_buffer, current_name_len);
-        pos += current_name_len;
+        ret[p1] = ' ';
+        p1++;
+        memcpy(ret + p1, token.name.str, token.name.len);
+        p1 += token.name.len;
     }
 
-    // Copy in all the data after the last struct
-    memcpy(ret + pos, data + last_mark, len - last_mark);
+    memcpy(ret + p1, data + p2, len - p2);
 
-    // Fill in the returned new file len, including the added typedefs and doubled typenames
-    *new_len = len + extra_size;
+    while(ret[len + extra_size - 1] != '\n')
+        extra_size--;
 
-    // Print final contents
-    for(int i = 0; i < *new_len; ++i)
-        printf("%c", ret[i]);
-
+    *new_sz = extra_size + len;
     return ret;
 }
 #endif // implementation guard
